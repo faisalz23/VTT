@@ -1,0 +1,333 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #f7f9fa;
+  color: #222;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+h2 {
+  text-align: center;
+  margin: 0;
+  padding: 1em;
+  background: #fff;
+  color: #0078d7;
+  font-weight: 600;
+  border-bottom: 1px solid #ddd;
+}
+
+.container {
+  flex: 1;
+  display: flex;
+  gap: 1em;
+  padding: 1em;
+  background: #f7f9fa;
+  height: calc(100vh - 70px); /* Tinggi total dikurangi header */
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  padding: 1em;
+  height: 100%;
+  min-height: 0; /* allow children with flex:1 to shrink within */
+}
+
+.transcript-col {
+  flex: 0 0 40%;
+}
+
+.summary-col {
+  flex: 0 0 60%;
+}
+
+/* Pastikan kolom kanan menata editor agar tidak overflow */
+.summary-col {
+  min-height: 0; /* fix flex overflow issue in some browsers */
+}
+
+.summary-header {
+  margin-bottom: 0.5em;
+  padding: 0.5em;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e9ecef;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.timestamp {
+  font-size: 0.85em;
+  color: #6c757d;
+  font-style: italic;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1em;
+}
+
+.connection-status {
+  font-size: 0.8em;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.connection-status.connected {
+  color: #155724;
+  background: #d4edda;
+}
+
+.connection-status.disconnected {
+  color: #721c24;
+  background: #f8d7da;
+}
+
+.char-count {
+  font-size: 0.85em;
+  color: #495057;
+  font-weight: 500;
+}
+
+textarea {
+  flex: 1; /* Pastikan isi textarea mengisi sisa kolom */
+  width: 100%;
+  font-size: 1.1em;
+  border-radius: 8px;
+  border: 1px solid #d0d7de;
+  padding: 1em;
+  resize: none;
+  background: #f9fbfc;
+  overflow-y: auto;
+  overflow-x: hidden;
+  word-break: break-word;
+  white-space: pre-wrap;
+  margin-bottom: 1em;
+}
+
+textarea:focus {
+  border: 1.5px solid #0078d7;
+  outline: none;
+  background: #fff;
+}
+
+.btn-group {
+  display: flex;
+  gap: 0.5em;
+  margin-top: auto; /* Dorong tombol ke bawah agar sejajar */
+}
+
+.btn-group button {
+  padding: 0.7em 1.2em;
+  font-size: 1em;
+  border: none;
+  border-radius: 6px;
+  background: #0078d7;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex: 1;
+}
+
+.btn-group button:disabled {
+  background: #b0c4de;
+  cursor: not-allowed;
+}
+
+#stopBtn {
+  background: #e81123;
+}
+
+#stopBtn:disabled {
+  background: #f3b6bc;
+}
+
+#copyBtn {
+  background: #0078d4;
+}
+
+#copyBtn:disabled {
+  background: #b0c4de;
+}
+
+#clearBtn {
+  background: #d83b01;
+}
+
+#clearBtn:hover {
+  background: #b02a02;
+}
+
+/* Editor toolbar polish */
+.editor-toolbar {
+  display: flex;
+  gap: 0.4em;
+  flex-wrap: wrap;
+  margin-bottom: 0.5em;
+  background: #fff;
+  border: 1px solid #e1e5ea;
+  border-radius: 8px;
+  padding: 6px;
+}
+.editor-toolbar button {
+  padding: 6px 10px;
+  background: #f3f6f9;
+  color: #222;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.editor-toolbar button:hover {
+  background: #e8eef4;
+}
+.toolbar-sep {
+  width: 1px;
+  height: 24px;
+  background: #d0d7de;
+  display: inline-block;
+  margin: 0 2px;
+}
+/* Editor look */
+#summaryEditor {
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #f9fbfc;
+  min-height: 260px;
+  padding: 1em;
+  flex: 1; /* isi sisa tinggi kolom */
+  overflow-y: auto; /* scroll vertikal bila konten panjang */
+  overflow-x: hidden; /* jangan meluber horizontal */
+  word-break: break-word; /* putus kata panjang/URL */
+  overflow-wrap: anywhere; /* paksa wrap bila perlu */
+  white-space: pre-wrap; /* pertahankan newline dari teks */
+}
+#summaryEditor:focus {
+  border: 1.5px solid #0078d7;
+  background: #fff;
+  outline: none;
+}
+#summaryEditor.loading {
+  background-image: radial-gradient(circle at center, #e6f2ff 0, #f9fbfc 70%);
+}
+#summaryEditor:empty:before {
+  content: attr(data-placeholder);
+  color: #6c757d;
+}
+/* Inline formatting clarity */
+#summaryEditor b, #summaryEditor strong { font-weight: 700; }
+#summaryEditor i, #summaryEditor em { font-style: italic; }
+#summaryEditor u { text-decoration: underline; }
+
+/* Quill overrides */
+#quillToolbar {
+  margin-bottom: 0.5em;
+}
+.editor {
+  min-height: 260px;
+}
+.editor .ql-editor {
+  min-height: 240px;
+}
+/* Hide custom toolbar separator if any remains */
+.toolbar-sep { display: none; }
+/* Provide border consistent with app */
+/* Buttons inside toolbar inherit button look */
+.ql-toolbar button {
+  border-radius: 6px;
+}
+
+@media (max-width: 800px) {
+  .container {
+    flex-direction: column;
+  }
+  .transcript-col, .summary-col {
+    flex: 1 1 auto;
+  }
+  
+  .btn-group {
+    flex-wrap: wrap;
+    gap: 0.3em;
+  }
+  
+  .btn-group button {
+    flex: 1 1 calc(50% - 0.3em);
+    min-width: 120px;
+    font-size: 0.9em;
+    padding: 0.6em 0.8em;
+  }
+}
+
+@media (max-width: 480px) {
+  .btn-group button {
+    flex: 1 1 100%;
+    margin-bottom: 0.3em;
+  }
+}
+
+/* Toast Notification */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 6px;
+  color: white;
+  font-weight: 500;
+  z-index: 1000;
+  display: none;
+  animation: slideIn 0.3s ease-out;
+}
+
+.toast.success {
+  background: #28a745;
+}
+
+.toast.error {
+  background: #dc3545;
+}
+
+.toast.info {
+  background: #17a2b8;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Progress Bar */
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: #eef2f7;
+  border: 1px solid #e1e5ea;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 0.75em;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #84c5f4, #0078d7);
+  transition: width 0.25s ease;
+}
