@@ -2,12 +2,24 @@ import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from groq import Groq
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 client = Groq(api_key=GROQ_API_KEY)
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
+
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({"status": "connected", "message": "Backend is running"})
 
 @app.route("/summarize", methods=["POST"])
 def summarize():

@@ -262,15 +262,16 @@
 
   // Check backend connectivity
   function checkBackendConnection() {
-    fetch('/summarize', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: "test" })
+    fetch('/test', {
+      method: 'GET'
     })
-    .then(response => {
+    .then(response => response.json())
+    .then(data => {
+      console.log('Backend response:', data);
       updateConnectionStatus(true);
     })
-    .catch(() => {
+    .catch((error) => {
+      console.error('Backend connection error:', error);
       updateConnectionStatus(false);
     });
   }
