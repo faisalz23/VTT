@@ -1,7 +1,5 @@
 flask
 flask-cors
-torch
-transformers>=4.30.0
 groq
 gunicorn
 python-dotenv
