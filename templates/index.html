@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>Voice to Text</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+
+  <!-- Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <!-- Diff.js untuk highlight perubahan -->
+  <script src="https://cdn.jsdelivr.net/npm/diff@5.2.0/dist/diff.min.js"></script>
+
+  <style>
+    .editor .hl-add {
+      background: #d4edda;
+      color: #155724;
+      font-weight: 500;
+      border-radius: 3px;
+      padding: 0 1px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎙️ Realtime Voice to Text</h2>
+
+  <div class="container">
+    <!-- Kolom Kiri -->
+    <div class="column transcript-col">
+      <textarea id="transcript" placeholder="Transkrip akan muncul di sini..." readonly></textarea>
+      <div class="btn-group">
+        <button id="startBtn">Mulai</button>
+        <button id="stopBtn" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Kolom Kanan -->
+    <div class="column summary-col">
+      <div class="summary-header">
+        <span id="timestamp" class="timestamp"></span>
+        <div class="header-right">
+          <span id="connectionStatus" class="connection-status">🟢 Terhubung</span>
+          <span id="charCount" class="char-count"></span>
+        </div>
+      </div>
+
+      <div id="progressBar" class="progress-bar" style="display:none;">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+
+      <div id="summaryEditor" class="editor" contenteditable="true" data-placeholder="Ringkasan akan muncul di sini..."></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+  // ===== Elements & State =====
+  let recognition;
+  const transcriptArea = document.getElementById('transcript');
+  const summaryEditor  = document.getElementById('summaryEditor');
+  const startBtn = document.getElementById('startBtn');
+  const stopBtn  = document.getElementById('stopBtn');
+  const timestamp = document.getElementById('timestamp');
+  const charCount = document.getElementById('charCount');
+  const connectionStatus = document.getElementById('connectionStatus');
+  const progressBar = document.getElementById('progressBar');
+  const progressFill = document.getElementById('progressFill');
+  const toast = document.getElementById('toast');
+
+  let manualStop = false;
+  let fullTranscript = "";
+  let autoSummarizeEnabled = true;
+  let autoSummarizeTimer = null;
+  let summarizeInFlight = false;
+
+  let lastFinalSummary = "";
+  let pendingSummaryText = "";
+  let streamBuffer = "";
+  let firstTokenTimer = null;
+  let gotFirstToken = false;
+
+  // ===== Helpers =====
+  function showToast(message, type='success') {
+    toast.textContent = message;
+    toast.className = `toast ${type}`;
+    toast.style.display = 'block';
+    setTimeout(() => { toast.style.display = 'none'; }, 3000);
+  }
+  function showProgress() {
+    progressBar.style.display = 'block';
+    progressFill.style.width = '0%';
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += Math.random() * 15;
+      if (progress > 90) progress = 90;
+      progressFill.style.width = progress + '%';
+    }, 200);
+    return interval;
+  }
+  function hideProgress() { progressBar.style.display = 'none'; progressFill.style.width = '0%'; }
+  function completeProgress() { progressFill.style.width = '100%'; setTimeout(hideProgress, 500); }
+  function calculateReadingTime(text) {
+    const wordCount = text.split(/\s+/).filter(w => w.length>0).length;
+    return Math.ceil(wordCount / 200);
+  }
+  function updateCountDisplay(text) {
+    if (!text) { charCount.textContent = ''; return; }
+    const wordCount = text.split(/\s+/).filter(w => w.length>0).length;
+    const readingTime = calculateReadingTime(text);
+    charCount.textContent = `${text.length} karakter, ${wordCount} kata, ~${readingTime} menit baca`;
+  }
+
+  // ===== Markdown render (bold/italic + newline) =====
+  function escapeHtml(s){
+    return (s||"")
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;');
+  }
+  function mdToHtml(text){
+    let s = escapeHtml(text || "");
+    // **bold**
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // *italic*
+    s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // newline
+    s = s.replace(/\n/g, '<br>');
+    return s;
+  }
+
+  // ===== Diff highlight (hijau) untuk seluruh teks + render markdown =====
+  let clearHlTimer = null;
+  const AUTO_CLEAR_HL_MS = 2500;
+
+  function renderDiff(prev, next, el) {
+    if (clearHlTimer) { clearTimeout(clearHlTimer); clearHlTimer = null; }
+
+    if (typeof Diff === "undefined" || (prev||"") === (next||"")) {
+      el.innerHTML = mdToHtml(next || "");
+      return;
+    }
+
+    const parts = Diff.diffWords(prev||"", next||"");
+    el.innerHTML = parts.map(p => {
+      const html = mdToHtml(p.value);
+      if (p.added)  return `<span class="hl-add">${html}</span>`;
+      if (p.removed) return "";
+      return html;
+    }).join("");
+
+    clearHlTimer = setTimeout(() => {
+      el.innerHTML = mdToHtml(next || "");
+      clearHlTimer = null;
+    }, AUTO_CLEAR_HL_MS);
+  }
+
+  // ===== Socket.IO =====
+  const socket = io({ transports: ["websocket"], upgrade: false, timeout: 8000 });
+
+  socket.on("connect", () => {
+    connectionStatus.textContent = "🟢 Terhubung";
+    connectionStatus.style.color = "#28a745";
+    summarizeInFlight = false;
+  });
+  socket.on("disconnect", () => {
+    connectionStatus.textContent = "🔴 Terputus";
+    connectionStatus.style.color = "#dc3545";
+    summarizeInFlight = false;
+  });
+  socket.on("connect_error", (err) => {
+    console.error("socket connect_error:", err);
+    connectionStatus.textContent = "🟡 Error";
+    connectionStatus.style.color = "#ffc107";
+    summarizeInFlight = false;
+  });
+
+  // Streaming handler
+  socket.on("summary_stream", (data) => {
+    if (data && data.error) {
+      summarizeInFlight = false;
+      showToast(data.message || data.error, 'error');
+      hideProgress();
+      return;
+    }
+
+    if (data && data.token) {
+      if (!gotFirstToken) {
+        gotFirstToken = true;
+        if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
+      }
+      streamBuffer += data.token;
+    }
+
+    if (data && data.final) {
+      const prev = lastFinalSummary || "";
+      const next = (data.final || "").trim();
+      try { renderDiff(prev, next, summaryEditor); }
+      catch(e){ console.error("renderDiff error → fallback:", e); summaryEditor.innerHTML = mdToHtml(next); }
+      lastFinalSummary = next;
+      updateCountDisplay(next);
+    }
+
+    if (data && data.end) {
+      if (!data.final) {
+        if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
+        pendingSummaryText = (pendingSummaryText + streamBuffer).trimStart();
+        streamBuffer = "";
+        const prev = lastFinalSummary || "";
+        const next = (pendingSummaryText || "").trim();
+        try { renderDiff(prev, next, summaryEditor); }
+        catch(e){ console.error("renderDiff error (end) → fallback:", e); summaryEditor.innerHTML = mdToHtml(next); }
+        lastFinalSummary = next;
+        pendingSummaryText = "";
+        updateCountDisplay(next);
+      }
+      timestamp.textContent = new Date().toLocaleString();
+      summarizeInFlight = false;
+      completeProgress();
+      showToast("Ringkasan final diperbarui", "success");
+    }
+  });
+
+  // ===== Speech to Text =====
+  if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    alert("Browser Anda tidak mendukung Web Speech API. Silakan gunakan Google Chrome.");
+  } else {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.lang = 'id-ID';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = function(event) {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        const chunk = event.results[i][0].transcript || '';
+        if (event.results[i].isFinal) fullTranscript += chunk + ' ';
+        else interim += chunk;
+      }
+      transcriptArea.value = fullTranscript + interim;
+      scheduleAutoSummarize();
+    };
+
+    recognition.onstart = function() {
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      summaryEditor.innerHTML = '';
+      fullTranscript = "";
+      transcriptArea.value = '';
+      timestamp.textContent = '';
+      charCount.textContent = '';
+    };
+
+    recognition.onend = function() {
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      if (!manualStop) { try { recognition.start(); } catch (_) {} }
+    };
+
+    startBtn.onclick = function() {
+      transcriptArea.value = '';
+      summaryEditor.innerHTML = '';
+      manualStop = false;
+      fullTranscript = "";
+      timestamp.textContent = '';
+      charCount.textContent = '';
+      try { recognition.start(); }
+      catch (err) {
+        console.error('Failed to start recognition:', err);
+        showToast('Tidak bisa mulai: izin mikrofon diblokir atau sudah berjalan.', 'error');
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    };
+
+    stopBtn.onclick = function() {
+      manualStop = true;
+      try { recognition.stop(); } catch (_) {}
+      socket.emit("stop_stream");
+      summarizeInFlight = false;
+      hideProgress();
+    };
+
+    recognition.onerror = function(event) {
+      console.error('SpeechRecognition error:', event);
+      showToast(`Gagal memulai/berjalan: ${event.error}`, 'error');
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    };
+
+    // Manual summarize (Ctrl/Cmd + Enter)
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (transcriptArea.value.trim() !== '') {
+          requestSummarize(transcriptArea.value.trim(), { showUI: true });
+        }
+      }
+    });
+
+    function requestSummarize(text, { showUI = true } = {}) {
+      if (summarizeInFlight) return;
+      if (!text || text.trim() === '') return;
+      summarizeInFlight = true;
+
+      let progressInterval = null;
+      if (showUI) {
+        summaryEditor.innerText = 'Memproses ringkasan...';
+        charCount.textContent = "Memproses...";
+        progressInterval = showProgress();
+        summaryEditor.classList.add('loading');
+      }
+
+      pendingSummaryText = "";
+      streamBuffer = "";
+      gotFirstToken = false;
+      if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
+
+      socket.emit("summarize_stream", { text });
+
+      // Watchdog: 3 detik tanpa token → fallback HTTP
+      firstTokenTimer = setTimeout(() => {
+        if (!gotFirstToken && summarizeInFlight) {
+          socket.emit("stop_stream");
+          summarizeInFlight = false;
+          fetch('/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+          })
+          .then(async (response) => {
+            const raw = await response.text();
+            let data = {};
+            try { data = raw ? JSON.parse(raw) : {}; } catch (e) {
+              throw new Error(`Non-JSON ${response.status}: ${raw.slice(0,200)}`);
+            }
+            if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+            return data;
+          })
+          .then(data => {
+            const prev = lastFinalSummary || "";
+            const next = (data.summary || '').trim();
+            try { renderDiff(prev, next, summaryEditor); }
+            catch(e){ console.error("renderDiff error (HTTP) → fallback:", e); summaryEditor.innerHTML = mdToHtml(next); }
+            lastFinalSummary = next;
+            updateCountDisplay(next);
+            timestamp.textContent = new Date().toLocaleString();
+            showToast("Ringkasan diperbarui (HTTP)", "success");
+          })
+          .catch(err => {
+            console.error("HTTP summarize error:", err);
+            showToast(`Gagal fallback HTTP: ${err.message}`, "error");
+          })
+          .finally(() => {
+            if (progressInterval) { clearInterval(progressInterval); completeProgress(); }
+          });
+        }
+      }, 3000);
+
+      const streamEndHandler = (data) => {
+        if (data && data.end) {
+          if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
+          if (progressInterval) { clearInterval(progressInterval); completeProgress(); }
+          summarizeInFlight = false;
+          socket.off("summary_stream", streamEndHandler);
+        }
+      };
+      socket.on("summary_stream", streamEndHandler);
+    }
+
+    function scheduleAutoSummarize() {
+      if (!autoSummarizeEnabled) return;
+      clearTimeout(autoSummarizeTimer);
+      autoSummarizeTimer = setTimeout(() => {
+        const text = transcriptArea.value.trim();
+        if (text.length > 10) requestSummarize(text, { showUI: false });
+      }, 1200);
+    }
+
+    summaryEditor.addEventListener('input', () => {
+      // innerText mem-bersihkan tag <strong>/<em> → pakai textContent
+      updateCountDisplay(summaryEditor.textContent.trim());
+    });
+  }
+
+  // Cek backend
+  fetch('/test').then(r=>r.json()).then(_=>{
+    connectionStatus.textContent="🟢 Terhubung";
+  }).catch(_=>{
+    connectionStatus.textContent="🔴 Terputus";
+  });
+  </script>
+</body>
+</html>

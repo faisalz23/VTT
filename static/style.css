@@ -96,9 +96,44 @@ h2 {
   background: #f8d7da;
 }
 
+.streaming-status {
+  font-size: 0.8em;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #856404;
+  background: #fff3cd;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
 .char-count {
   font-size: 0.85em;
   color: #495057;
+  font-weight: 500;
+}
+
+.auto-summarize-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font-size: 0.85em;
+  color: #495057;
+  cursor: pointer;
+}
+
+.auto-summarize-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.toggle-label {
   font-weight: 500;
 }
 
@@ -140,6 +175,7 @@ textarea:focus {
   cursor: pointer;
   transition: background 0.2s;
   flex: 1;
+  min-width: 80px;
 }
 
 .btn-group button:disabled {
@@ -155,21 +191,7 @@ textarea:focus {
   background: #f3b6bc;
 }
 
-#copyBtn {
-  background: #0078d4;
-}
 
-#copyBtn:disabled {
-  background: #b0c4de;
-}
-
-#clearBtn {
-  background: #d83b01;
-}
-
-#clearBtn:hover {
-  background: #b02a02;
-}
 
 /* Editor toolbar polish */
 .editor-toolbar {
@@ -237,6 +259,19 @@ textarea:focus {
 }
 .editor {
   min-height: 260px;
+  transition: all 0.3s ease;
+}
+
+.editor.loading {
+  border-color: #0078d7;
+  background: #f8fbff;
+  box-shadow: 0 0 0 2px rgba(0, 120, 215, 0.1);
+}
+
+.editor.streaming {
+  border-color: #28a745;
+  background: #f8fff9;
+  box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.1);
 }
 .editor .ql-editor {
   min-height: 240px;
@@ -255,6 +290,17 @@ textarea:focus {
   }
   .transcript-col, .summary-col {
     flex: 1 1 auto;
+  }
+  
+  .summary-header {
+    flex-direction: column;
+    gap: 0.5em;
+    align-items: flex-start;
+  }
+  
+  .header-right {
+    flex-wrap: wrap;
+    gap: 0.5em;
   }
   
   .btn-group {
@@ -331,3 +377,13 @@ textarea:focus {
   background: linear-gradient(90deg, #84c5f4, #0078d7);
   transition: width 0.25s ease;
 }
+
+/* highlight penambahan */
+.editor .hl-add {
+  background: #d4edda !important;
+  color: #155724 !important;
+  font-weight: 500;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
